@@ -309,7 +309,7 @@ impl<'a> FileMmapOptions<'a> {
     ///
     /// # fn try_main() -> std::io::Result<()> {
     /// let file = File::open("README.md")?;
-    /// let mut mmap = unsafe { memmap::file(&file).map_mut()? };
+    /// let mut mmap = unsafe { memmap::file(&file).map_copy()? };
     /// (&mut mmap[..]).write(b"Hello world")?;
     /// # Ok(())
     /// # }
