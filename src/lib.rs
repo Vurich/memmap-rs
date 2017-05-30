@@ -20,59 +20,65 @@ use std::slice;
 use std::usize;
 use std::ops::{Deref, DerefMut};
 
-// Anonymous mappings
-
-/// Options that can be used to configure how an anonymous mapping is created.
+/// Options and flags which can be used to configure how an anonymous memory map
+/// is created.
 ///
-/// Create this structure by calling [`memmap::anonymous()`](fn.anonymous.html),
-/// then chain call methods to configure additional options, finally, call [`map()`](#method.map)
-/// or [`map_mut()`](#method.map_mut).
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct AnonymousMmapOptions {
-    len: usize,
-    stack: bool,
-}
-
-/// Configure a new anonymous mapping of `len` bytes.
+/// Generally speaking, when using `AnonMmapOptions`, you'll first call
+/// [`new`]: #method.new, then chain calls to methods to set each option, then
+/// call [`map_mut`]: #method.map_mut, passing the length of the memory map
+/// you're trying to create. This will give you an `io::Result` with a `MmapMut`
+/// inside that you can further operate on.
 ///
 /// # Example
 ///
-/// ```rust
-/// fn change_bytes(bytes: &mut [u8]) {
-///     for i in 0..100 {
-///         bytes[i] = i as u8;
-///     }
-/// }
-///
-/// fn write_to_anon() -> std::io::Result<()> {
-///     let mut mmap = memmap::anonymous(4096)
-///                         .map_mut()?;
-///     assert_eq!(mmap[51], 0);
-///     change_bytes(&mut mmap);
-///     assert_eq!(mmap[51], 51);
-///     Ok(())
-/// }
-/// # fn main() { write_to_anon().unwrap(); }
 /// ```
-pub fn anonymous(len: usize) -> AnonymousMmapOptions {
-    AnonymousMmapOptions {
-        len: len,
-        stack: false,
-    }
+/// use memmap::AnonMmapOptions;
+///
+/// fn use_buffer(buf: &mut [u8]) { /* ... */ }
+///
+/// # fn try_main() -> std::io::Result<()> {
+/// let mut mmap = AnonMmapOptions::new().map_mut(4096)?;
+/// use_buffer(&mut mmap[..]);
+/// # Ok(())
+/// # }
+///
+/// # fn main() { try_main().unwrap(); }
+/// ```
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub struct AnonMmapOptions {
+    stack: bool,
 }
 
-impl AnonymousMmapOptions {
-    /// Make this mapping suitable to be a process or thread stack.
-    ///
-    /// This corresponds to `MAP_STACK` on Linux, which is currently a no-op.
+impl AnonMmapOptions {
+
+    /// Creates a new set of anonymous memory map options ready for
+    /// configuration.
     ///
     /// # Example
     ///
     /// ```rust
+    /// use memmap::AnonMmapOptions;
     /// # fn try_main() -> std::io::Result<()> {
-    /// let mut mmap_stack = memmap::anonymous(4096)
-    ///                         .stack()
-    ///                         .map_mut()?;
+    /// let mut anon_mmap = AnonMmapOptions::new() .map_mut(1024 * 1024)?;
+    /// # Ok(())
+    /// # }
+    /// # fn main() { try_main().unwrap(); }
+    pub fn new() -> AnonMmapOptions {
+        AnonMmapOptions::default()
+    }
+
+    /// Configures the anonymous memory map to be suitable for a process or
+    /// thread stack.
+    ///
+    /// This option corresponds to `MAP_STACK` on Linux.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use memmap::AnonMmapOptions;
+    ///
+    /// # fn try_main() -> std::io::Result<()> {
+    /// let stack = AnonMmapOptions::new().stack().map_mut(4096)?;
     /// # Ok(())
     /// # }
     /// # fn main() { try_main().unwrap(); }
@@ -93,16 +99,16 @@ impl AnonymousMmapOptions {
     ///
     /// ```rust
     /// use std::io::Write;
+    /// use memmap::AnonMmapOptions;
     /// # fn try_main() -> std::io::Result<()> {
-    /// let mut mmap = memmap::anonymous(4096)
-    ///                     .map_mut()?;
+    /// let mut mmap = AnonMmapOptions::new().map_mut(4096)?;
     /// (&mut mmap[..]).write(b"foo")?;
     /// # Ok(())
     /// # }
     /// # fn main() { try_main().unwrap(); }
     /// ```
-    pub fn map_mut(&self) -> Result<MmapMut> {
-        MmapInner::anonymous(self.len, self.stack).map(|inner| MmapMut { inner: inner })
+    pub fn map_mut(&self, len: usize) -> Result<MmapMut> {
+        MmapInner::anonymous(len, self.stack).map(|inner| MmapMut { inner: inner })
     }
 }
 
@@ -410,19 +416,20 @@ impl fmt::Debug for Mmap {
 ///
 /// # Example
 ///
-/// ```rust
-/// use std::io::Write;
+/// TODO: convert to file example
+// ```no_run
+// use std::io::Write;
+//
+// # fn try_main() -> std::io::Result<()> {
+// let mut mmap = memmap::anonymous(4096).map_mut()?;
+// (&mut mmap[..]).write(b"foo")?;
+// assert_eq!(b"foo\0\0", &mmap[0..5]);
+// # Ok(())
+// # }
+// # fn main() { try_main().unwrap(); }
+// ```
 ///
-/// # fn try_main() -> std::io::Result<()> {
-/// let mut mmap = memmap::anonymous(4096).map_mut()?;
-/// (&mut mmap[..]).write(b"foo")?;
-/// assert_eq!(b"foo\0\0", &mmap[0..5]);
-/// # Ok(())
-/// # }
-/// # fn main() { try_main().unwrap(); }
-/// ```
-///
-/// See [`Mmap`](struct.Mmap.html) for the immutable version.
+/// See [`Mmap`]: #struct.Mmap for the immutable version.
 pub struct MmapMut {
     inner: MmapInner
 }
@@ -616,6 +623,10 @@ mod test {
         pub use super::super::*;
     }
 
+    use super::{
+        AnonMmapOptions,
+    };
+
     extern crate tempdir;
 
     use std::fs;
@@ -673,7 +684,7 @@ mod test {
     #[test]
     fn map_anon() {
         let expected_len = 128;
-        let mut mmap = memmap::anonymous(expected_len).map_mut().unwrap();
+        let mut mmap = AnonMmapOptions::new().map_mut(expected_len).unwrap();
         let len = mmap.len();
         assert_eq!(expected_len, len);
 
@@ -809,14 +820,14 @@ mod test {
 
     #[test]
     fn index() {
-        let mut mmap = memmap::anonymous(128).map_mut().unwrap();
+        let mut mmap = AnonMmapOptions::new().map_mut(128).unwrap();
         mmap[0] = 42;
         assert_eq!(42, mmap[0]);
     }
 
     #[test]
     fn sync_send() {
-        let mmap = Arc::new(memmap::anonymous(128).map_mut().unwrap());
+        let mmap = Arc::new(AnonMmapOptions::new().map_mut(128).unwrap());
         thread::spawn(move || {
             &mmap[..];
         });
@@ -827,7 +838,7 @@ mod test {
     fn jit_x86() {
         use std::mem;
 
-        let mut mmap = memmap::anonymous(4096).map_mut().unwrap();
+        let mut mmap = AnonMmapOptions::new().map_mut(4096).unwrap();
 
         mmap[0] = 0xB8;   // mov eax, 0xAB
         mmap[1] = 0xAB;
