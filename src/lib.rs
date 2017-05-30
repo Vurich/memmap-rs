@@ -44,20 +44,20 @@ use std::ops::{Deref, DerefMut};
 ///
 /// # fn main() { try_main().unwrap(); }
 /// ```
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default)]
 pub struct AnonMmapOptions {
     stack: bool,
 }
 
 impl AnonMmapOptions {
 
-    /// Creates a new set of anonymous memory map options ready for
-    /// configuration.
+    /// Creates a new set of anonymous memory map options ready for configuration.
     ///
     /// # Example
     ///
     /// ```rust
     /// use memmap::AnonMmapOptions;
+    ///
     /// # fn try_main() -> std::io::Result<()> {
     /// let mut anon_mmap = AnonMmapOptions::new() .map_mut(1024 * 1024)?;
     /// # Ok(())
@@ -67,8 +67,7 @@ impl AnonMmapOptions {
         AnonMmapOptions::default()
     }
 
-    /// Configures the anonymous memory map to be suitable for a process or
-    /// thread stack.
+    /// Configures the memory map to be suitable for a process or thread stack.
     ///
     /// This option corresponds to `MAP_STACK` on Linux.
     ///
@@ -88,18 +87,19 @@ impl AnonMmapOptions {
         self
     }
 
-    /// Actually map this anonymous mapping into the address space.
+    /// Creates an anomous memory map with options specified by `self`.
     ///
     /// # Errors
     ///
-    /// This method returns `Err` when the underlying system call fails, which
-    /// can happen for a variety of reasons.
+    /// This method returns an error when the underlying system call fails,
+    /// which can happen for a variety of reasons.
     ///
     /// # Example
     ///
     /// ```rust
     /// use std::io::Write;
     /// use memmap::AnonMmapOptions;
+    ///
     /// # fn try_main() -> std::io::Result<()> {
     /// let mut mmap = AnonMmapOptions::new().map_mut(4096)?;
     /// (&mut mmap[..]).write(b"foo")?;
@@ -110,20 +110,6 @@ impl AnonMmapOptions {
     pub fn map_mut(&self, len: usize) -> Result<MmapMut> {
         MmapInner::anonymous(len, self.stack).map(|inner| MmapMut { inner: inner })
     }
-}
-
-// File-backed mappings
-
-/// Options that can be used to configure how a file-backed mapping is created.
-///
-/// Create this structure by calling [`memmap::file()`](fn.file.html),
-/// then chain call methods to configure additional options, finally, call [`map()`](#method.map)
-/// or [`map_mut()`](#method.map_mut).
-#[derive(Copy, Clone, Debug)]
-pub struct FileMmapOptions<'a> {
-    file: &'a File,
-    offset: usize,
-    len: Option<usize>,
 }
 
 /// Configure a new file-backed mapping.
@@ -151,15 +137,60 @@ pub struct FileMmapOptions<'a> {
 /// # }
 /// # fn main() { try_main().unwrap(); }
 /// ```
-pub unsafe fn file(file: &File) -> FileMmapOptions {
-    FileMmapOptions {
-        file: file,
-        offset: 0,
-        len: None,
-    }
+
+/// Options and flags which can be used to configure how a file-backed memory
+/// map is created.
+///
+/// Generally speaking, when using `MmapOptions`, you'll first call
+/// [`new`]: #method.new, then chain calls to methods to set each option, then
+/// call [`map`]: #method.map or [`map_mut`]: #method.map_mut, passing the open
+/// file to map.  This will give you an `io::Result` with a `Mmap` or `MmapMut`
+/// inside that you can further operate on.
+///
+/// # Example
+///
+/// ```
+/// use memmap::MmapOptions;
+/// use std::fs::File;
+///
+/// fn parse_toml_from_bytes(buf: &[u8]) { /* ... */ }
+///
+/// # fn try_main() -> std::io::Result<()> {
+/// let file = File::open("Cargo.toml")?;
+/// let mut mmap = MmapOptions::new().map()?;
+/// parse_toml_from_bytes(&mmap[..]);
+/// # Ok(())
+/// # }
+///
+/// # fn main() { try_main().unwrap(); }
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct MmapOptions {
+    offset: usize,
+    len: Option<usize>,
 }
 
-impl<'a> FileMmapOptions<'a> {
+impl MmapOptions {
+
+    /// Creates a new set of file-backed memory map options, with the following default
+    /// configuration:
+    ///
+    /// * 0 offset
+    /// * length matching the file length
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use memmap::MmapOptions;
+    ///
+    /// # fn try_main() -> std::io::Result<()> {
+    /// let mut mmap = MmapOptions::new().map_mut()?;
+    /// # Ok(())
+    /// # }
+    /// # fn main() { try_main().unwrap(); }
+    pub fn new() -> MmapOptions {
+        MmapOptions::default()
+    }
 
     /// Configure this mapping to start at byte `offset` from the beginning of the file.
     ///
@@ -249,12 +280,13 @@ impl<'a> FileMmapOptions<'a> {
     /// # }
     /// # fn main() { try_main().unwrap(); }
     /// ```
-    pub fn map(&self) -> Result<Mmap> {
+    pub unsafe fn map(&self) -> Result<Mmap> {
         MmapInner::map(try!(self.get_len()), &self.file, self.offset)
                   .map(|inner| Mmap { inner: inner })
     }
 
-    pub fn map_execute(&self) -> Result<Mmap> {
+    /// Creates a file-backed memory map with read and execute protection.
+    pub unsafe fn map_execute(&self) -> Result<Mmap> {
         MmapInner::map_execute(try!(self.get_len()), &self.file, self.offset)
                   .map(|inner| Mmap { inner: inner })
     }
@@ -291,7 +323,7 @@ impl<'a> FileMmapOptions<'a> {
     /// # }
     /// # fn main() { try_main().unwrap(); }
     /// ```
-    pub fn map_mut(&self) -> Result<MmapMut> {
+    pub unsafe fn map_mut(&self) -> Result<MmapMut> {
         MmapInner::map_mut(try!(self.get_len()), &self.file, self.offset)
                   .map(|inner| MmapMut { inner: inner })
     }
@@ -321,7 +353,7 @@ impl<'a> FileMmapOptions<'a> {
     /// # }
     /// # fn main() { try_main().unwrap(); }
     /// ```
-    pub fn map_copy(&self) -> Result<MmapMut> {
+    pub unsafe fn map_copy(&self) -> Result<MmapMut> {
         MmapInner::map_copy(try!(self.get_len()), &self.file, self.offset)
                   .map(|inner| MmapMut { inner: inner })
     }
